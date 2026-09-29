@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+	<head>
+	<title>Device</title>
+		<style>
+			dialog{
+				border: none;
+				min-width: 60%;
+			}
+      video{
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: fill;
+        position: fixed
+      }
+		</style>
+	</head>
+	<body style="margin: 0">
+    <video autoplay></video>
+    <dialog id="mediaDlg" >
+      Capture device<hr/>
+      Device: <select id="captureSel" onchange="setLocalStream(this.value)"></select><br/>
+      Current mode: <span id="currStream"></span>, max mode: <span id="maxStream"></span><br/>
+      Width: <input type="number" id="strWidth" style="width: 4em"/> Height: <input type="number" id="strHeight" style="width: 4em"/> fps<input type="number" id="strRate" style="width: 3em"/>
+      <button onclick="setVideoConstraints(document.getElementById('strWidth').value, document.getElementById('strHeight').value, document.getElementById('strRate').value)">set</button><br/>
+      Fit mode: <select id="fitSel" onchange="media.style.objectFit = this.value">
+        <option>fill</option>
+        <option>contain</option>
+        <option>cover</option>
+        <option>none</option>
+        <option>scale-down</option>
+      </select><hr/>
+      <button commandfor="mediaDlg" command="close">Close</button>
+    </dialog>
+    <script>
+      const media = document.querySelector('video')
+      let mediaDlg = document.getElementById('mediaDlg')
+
+      window.addEventListener('load', ev =>{
+        const captureSel = document.getElementById('captureSel');
+        captureSel.innerHTML = '';
+        let optionsHTML = '<option value="" disabled selected hidden>Choose acapture device</option>';
+        navigator.mediaDevices.enumerateDevices().then((mdi) =>{
+          mdi.forEach(mdev => {
+            if(mdev.kind == 'videoinput')
+              optionsHTML += `<option value="${mdev.deviceId}">${mdev.label}</option>`;
+          })
+          captureSel.innerHTML = optionsHTML;
+        })
+      })
+
+      mediaDlg.addEventListener('beforetoggle', (ev) => {
+        if(ev.newState == 'open'){
+          document.getElementById('captureSel').value = media.srcObject.getVideoTracks()[0].getSettings().deviceId;//Warning! it was a comment for some reson
+          document.getElementById('fitSel').value = getComputedStyle(media).objectFit;
+        }
+      })
+
+      media.addEventListener('canplay', ()=>{
+        //console.log(media.srcObject.getVideoTracks()[0]);
+        //console.log(media.srcObject.getVideoTracks()[0].getSettings());
+        //console.log(media.srcObject.getVideoTracks()[0].getCapabilities());
+        document.getElementById('currStream').innerText = `${media.srcObject.getVideoTracks()[0].getSettings().width}x${media.srcObject.getVideoTracks()[0].getSettings().height}@${Math.round(media.srcObject.getVideoTracks()[0].getSettings().frameRate)}fps`
+        document.getElementById('strWidth').value = media.srcObject.getVideoTracks()[0].getSettings().width;
+        document.getElementById('strHeight').value = media.srcObject.getVideoTracks()[0].getSettings().height;
+        document.getElementById('strRate').value = Math.round(media.srcObject.getVideoTracks()[0].getSettings().frameRate);
+        document.getElementById('maxStream').innerText = `${media.srcObject.getVideoTracks()[0].getCapabilities().width.max}x${media.srcObject.getVideoTracks()[0].getCapabilities().height.max}@${Math.round(media.srcObject.getVideoTracks()[0].getCapabilities().frameRate.max)}fps`
+      })
+
+      function setLocalStream(id){
+        navigator.mediaDevices.getUserMedia({
+          video: {deviceId: {exact: id}}
+        }).then(localStream =>{
+          media.srcObject = localStream;
+        }).catch(err => console.log('Error:',err))
+      }
+
+      function setVideoConstraints(w,h,r){
+        const constraints ={
+          width: {ideal: w},
+          height: {ideal: h},
+          frameRate: {ideal: r}
+        }
+        const mt= media.srcObject.getVideoTracks()[0];
+        mt.applyConstraints(constraints)
+          .then(() => {
+            console.log('updates successfully');
+            document.getElementById('currStream').innerText = `${mt.getSettings().width}x${mt.getSettings().height}@${mt.getSettings().frameRate}fps`
+          })
+          .catch(err => console.log('update error:', err))
+      }
+
+      function getSettings(){
+        let obj = {}
+        obj['label'] = media.srcObject.getVideoTracks()[0].label
+        obj['id'] = media.srcObject.getVideoTracks()[0].getSettings().deviceId
+        obj['width'] = media.srcObject.getVideoTracks()[0].getSettings().width
+        obj['height'] = media.srcObject.getVideoTracks()[0].getSettings().height
+        obj['rate'] = media.srcObject.getVideoTracks()[0].getSettings().frameRate
+        obj['fit'] = getComputedStyle(media).objectFit
+        return obj
+      }
+      function setSettings(obj){
+        const constraints = {video: {
+          deviceId: {exact: obj.id},
+          width: {ideal: obj.width},
+          height: {ideal: obj.height},
+          frameRate: {ideal: obj.rate}
+        }}
+        navigator.mediaDevices.getUserMedia(constraints).then(localStream => media.srcObject = localStream).catch(err => console.log('Error:',err))
+        media.style.objectFit = obj.fit
+      }
+    </script>
+  </body>
+</html>

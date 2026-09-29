@@ -1,0 +1,9 @@
+{
+    "name": "nwds",
+    "main": "main.html",
+    "chromium-args": "--disable-web-security", 
+    "window": {
+        "title": "NWDS",
+        "show": false
+    }
+}

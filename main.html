@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title></title>
+    <style>
+      #log {
+        font-size: small;
+      }
+      pre {
+        margin: 0px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="log"></div>
+    <input type='file' id="openJSONInp" accept=".json,application/json" style="display: none" />
+    <input type='file' id="saveInp" nwsaveas="layout.json" style="display:none;" />
+    <input type='file' id="getPathInp" accept=".json,application/json" style="display: none" />
+    <dialog id="startupDlg" style="border: none; width: 70%;">
+      Startup settings:<br/>
+      Layout: <input type="url" id="startLInp" style="width: 70%" onchange="localStorage.setItem('startLayout', this.value)"/>
+      <button onclick="getPathInp.click()">&#128194</button><br/><!--openJSONinp.onchange = onSetSturtLay; openJSONinp.click()-->
+      Check every <input type="number" id="checkLInp" value="0" style="width:3em" onchange="localStorage.setItem('checkPeriod', this.value)"> min. for changes in startup layout<br/>
+      <input type="checkbox" id="hideMainInp" onchange="localStorage.setItem('hideMain', this.checked)"/> Minimize main window at startup <br/>
+      <input type="checkbox" id="newFrameInp" onchange="localStorage.setItem('newFrame', this.checked)"/> Frame for new windows <br/>
+      <button onclick="startupDlg.close()">Close</button>
+    </dialog>
+
+    <dialog id="readUrlJSONDlg" style="border:none; width: 70%">
+      Remote layout URL:<br/>
+      <input type="url" style="width: 90%" onchange="openRemoteMedia(this.value)"/><br/>
+      <button onclick="readUrlJSONDlg.close()">Close</button>
+    </dialog>
+    
+    <script>
+      const mainTitle = 'NWDS'
+      const fs = require('fs')
+      const cwin = nw.Window.get()
+      
+      const startupDlg = document.getElementById('startupDlg')
+      const readUrlJSONDlg = document.getElementById('readUrlJSONDlg')
+      const openJSONinp = document.querySelector('#openJSONInp')
+      const getPathInp = document.querySelector('#getPathInp')
+      if(localStorage.getItem('hideMain') === 'true')
+        cwin.minimize()
+      document.title = mainTitle
+      cwin.show()
+      let dlFile = localStorage.getItem('startLayout') //default layout file
+      let dlmTime //default layout file modification time
+      log(`${mainTitle}_startup`, true)
+      log(`Startup_params: startLayout=${localStorage.getItem('startLayout')}, checkPeriod=${localStorage.getItem('checkPeriod')} min, hideMain=${localStorage.getItem('hideMain')}`, true)
+      if(dlFile){
+        const dlUrl = new URL(dlFile)
+        let dlRemote //is defaul layour remote or local
+        if(dlUrl.protocol == 'file:'){
+          dlRemote = false
+          dlmTime = fs.statSync(dlFile).mtime
+          openLocalMedia(dlFile)
+        }
+        else if(dlUrl.protocol.startsWith('http')){
+          dlRemote = true;
+          fetch(dlUrl.href, {cache: "no-store"})
+          .then(response => response.headers.get('Last-Modified'))
+          .then(mod => dlmTime = Date.parse(mod))
+          openRemoteMedia(dlUrl.href)
+        }
+        
+        if(localStorage.getItem('checkPeriod') > 0){
+          log(`TimerStart: ${localStorage.getItem('checkPeriod')} min`, true)
+          let checkTimer = setInterval(() => { //timer for checking modifications of default layout file
+            log('TimerTick', true)
+            if(dlRemote === false){
+              let modTime = fs.statSync(dlFile).mtime
+              if(modTime.getTime() !== dlmTime.getTime()){ //inna data modyfikacji
+                log(`DefaultLayoutModified: ${modTime}`, true)
+                dlmTime = modTime
+                closeAllMedia()
+                openLocalMedia(dlFile)
+              }
+            }
+            else if(dlRemote === true){
+              fetch(dlUrl.href, {cache: "no-store"})
+              .then(response => response.headers.get('Last-Modified'))
+              .then(mod =>{
+                let modTime = Date.parse(mod)
+                if(modTime !== dlmTime){
+                  log(`DefaultLayoutModified: ${mod}`, true)
+                  dlmTime = modTime
+                  closeAllMedia()
+                  openRemoteMedia(dlFile)
+                }
+              })
+            }
+          }, localStorage.getItem('checkPeriod')*1000*60)
+        }
+      }
+      
+      let menu = new nw.Menu({type: 'menubar'})
+      let smNewDSMedia = new nw.Menu()
+      smNewDSMedia.append(new nw.MenuItem({label: 'Image', click: () => {newMediaWindow('image.html')}}))
+      smNewDSMedia.append(new nw.MenuItem({label: 'Capture', click: () => {newMediaWindow('capture.html')}}))
+      smNewDSMedia.append(new nw.MenuItem({label: 'Video', click: () => {newMediaWindow('video.html')}}))
+      smNewDSMedia.append(new nw.MenuItem({label: 'Ticker', click: () => {newMediaWindow('ticker.html')}}))
+      smNewDSMedia.append(new nw.MenuItem({label: 'HTML', click: () => newMediaWindow()}))
+      let smMedia = new nw.Menu()
+      smMedia.append(new nw.MenuItem({label: 'New', submenu: smNewDSMedia}))
+      smMedia.append(new nw.MenuItem({ label: 'Open', click: () => {openJSONinp.click()}}))
+      smMedia.append(new nw.MenuItem({label: 'Open URL', click: () => readUrlJSONDlg.showModal()}))
+      smMedia.append(new nw.MenuItem({label: 'Save all', click: () => saveAllMedia()}))
+      smMedia.append(new nw.MenuItem({label: 'Close all', click: () => closeAllMedia()}))
+      menu.append(new nw.MenuItem({ label: 'Media', submenu: smMedia}))
+      let smSettings = new nw.Menu()
+      menu.append(new nw.MenuItem({label: 'Settings', click: () => startupDlg.showModal()}))
+      let smLog = new nw.Menu()
+      smLog.append(new nw.MenuItem({label: 'Screens', click: () => logScreens()}))
+      smLog.append(new nw.MenuItem({label: 'Capture devs', click: () => logCaptureDevs()}))
+      smLog.append(new nw.MenuItem({label: "OS", click: () => logOSinfo()}))
+      menu.append(new nw.MenuItem({label: 'Log', submenu: smLog}))
+      nw.Window.get().menu = menu
+
+      startupDlg.addEventListener('beforetoggle', ev =>{
+        if(ev.newState == 'open'){
+          document.getElementById('hideMainInp').checked = localStorage.getItem('hideMain') === 'true'
+          document.getElementById('newFrameInp').checked = localStorage.getItem('newFrame') === 'true'
+          document.getElementById('startLInp').value = localStorage.getItem('startLayout')
+          document.getElementById('checkLInp').value = localStorage.getItem('checkPeriod')
+        }
+      })
+
+       getPathInp.addEventListener('change', ev => {
+        const path = ev.target.files[0].path
+        document.getElementById('startLInp').value = path
+        localStorage.setItem('startLayout', path)
+        getPathInp.value = ''
+      })
+
+      openJSONinp.addEventListener('change', (ev) => {
+        const path = ev.target.files[0].path
+        openJSONinp.value=''
+        openLocalMedia(path)
+      })
+
+      function openLocalMedia(path){
+        const str = fs.readFileSync(path, 'utf8')
+        const arr = JSON.parse(str)
+        arr.forEach(obj => playMedia(obj))
+      }
+
+      async function openRemoteMedia(url){
+        const response = await fetch(url)
+        if(response.statusText == 'OK'){
+          const data = await response.json()
+          data.forEach(obj => playMedia(obj))
+        }
+      }
+
+      function playMedia(obj){
+        if(!obj.media){//file structure checking
+          log('Not a media object', true)
+          return
+        }
+        let openSetts = {}
+        if(obj.hasOwnProperty('winTransparent')) openSetts['transparent'] = obj.winTransparent
+        if(obj.hasOwnProperty('winFrame')) openSetts['frame'] = obj.winFrame
+        nw.Window.open(obj.media, openSetts, function(win){
+          if(Number.isInteger(obj.winX) && Number.isInteger(obj.winY))
+            win.moveTo(obj.winX, obj.winY)
+          if(Number.isInteger(obj.winWidth) && Number.isInteger(obj.winHeight))
+            win.resizeTo(obj.winWidth, obj.winHeight)
+          win.window.onload = function() {
+            this.setSettings(obj)
+          }
+        })
+      }
+
+      function newMediaWindow(ifrURL){
+        const framed = (localStorage.getItem('newFrame') === 'true')
+        nw.Window.open('thewindow.html', {frame: framed}, function(win){
+          win.window.addEventListener('load', function()  {
+            console.log(this.document.iframe) //gives undefined, why?
+            let ifr = this.document.getElementById('media')
+            if(ifrURL)
+              ifr.src = ifrURL
+          })
+        })
+      }
+
+      function closeAllMedia(){
+        log('CloseAllWindows', true)
+        nw.Window.getAll(wins => {
+          const mediawins = wins.filter(win => win.title != mainTitle)
+          mediawins.forEach(win => win.close(true))
+        })
+      }
+
+      function saveAllMedia(){
+        nw.Window.getAll(windows => {
+          const mediaws = windows.filter(win => win.title != mainTitle)
+          const objarr =[];
+          mediaws.forEach(win => {
+            let obj = win.window.getMediaObj()
+            objarr.push(obj)
+          })
+          const chooser = document.querySelector('#saveInp')
+          chooser.value = ''; 
+          chooser.onchange = function(ev) {
+            const filePath = this.value;
+            if (!filePath) return;
+            const data = JSON.stringify(objarr, null, 2);
+            fs.writeFile(filePath, data, (err) => {
+              if(err) alert("Error saving file: " + err.message)
+            })
+          }
+          chooser.click();
+        })
+      }
+
+      function log(msg, tstamp = false){
+        const logContainer = document.getElementById('log');
+        const msgHTML = `<pre>${tstamp? new Date().toISOString(): ''} ${msg}</pre>`
+        logContainer.insertAdjacentHTML('beforeend', msgHTML)
+      } 
+
+      function logScreens(){
+        nw.Screen.Init()
+        nw.Screen.screens.forEach(screen => {
+          log(`bounds:${JSON.stringify(screen.bounds)}, scale:${Math.round(screen.scaleFactor*100)/100}, rotation:${screen.rotation}, id:${screen.id}`)
+        });
+      }
+      
+      function logCaptureDevs(){
+        navigator.mediaDevices.enumerateDevices().then((mdi) =>{
+          mdi.forEach(mdev => {
+            if(mdev.kind == 'videoinput')
+              log(`${mdev.kind}: ${mdev.label} id = ${mdev.deviceId}`)
+          })
+        })
+      }
+
+      function logOSinfo(){
+        const os = require('os');
+        log(`Platform: ${os.platform()}, release: ${os.release()}, type: ${os.type()}`)
+      }
+    </script>
+  </body>
+</html>

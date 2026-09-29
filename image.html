@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+	<head>
+	<title>Image</title>
+		<style>
+			dialog{
+				border: none;
+				min-width: 60%;
+			}
+      img{
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: fill;
+        position: fixed;
+        /*
+        transition: opacity 1s ease-in-out;
+        opacity: 1
+        */
+      }
+		</style>
+	</head>
+	<body style="margin: 0">
+			<img id="media"/>
+			<dialog id="mediaDlg">
+				<input type="file" id="fopenInp" accept="image/*" onchange="setSingle(this.files[0].path)" style="display:none"/>
+        <input type="file" id="dopenInp" nwdirectory onchange="setFolder(this.files[0].path)" style="display:none" />
+        <input type="file" id="lopenInp" accept=".txt, text/plain" onchange="setList(this.files[0].path)" style="display:none"/>
+        Image<hr/>
+				Single image: <input type="url" id="urlInp" style="width: 70%" onchange="setSingle(this.value)" placeholder="Image local path or http address"/> <button onclick="document.getElementById('fopenInp').click()">&#x1F304;</button><br/>
+        Images folder: <input type="url" id="folderInp" nwdirectory style="width: 70%" onchange="setFolder(this.value)" placeholder="Local folder path containing images"/> <button onclick="document.getElementById('dopenInp').click()">&#128194;</button><br/> 
+        Images list: <input type="url" id="listInp" style="width: 70%" onchange="setList(this.value)" placeholder=".txt file containing list of images"/> <button onclick="document.getElementById('lopenInp').click()">&#x1F4DC;</button><br/>
+				Fit mode: <select id="fitSel" onchange="media.style.objectFit = this.value">
+					<option>fill</option>
+					<option>contain</option>
+					<option>cover</option>
+					<option>none</option>
+					<option>scale-down</option>
+				</select><hr/>
+				<button commandfor="mediaDlg" command="close">Close</button>
+			</dialog>
+		<script>
+      const url = require('node:url')
+      const fs = require('node:fs')
+      const fpath = require('node:path')
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
+      const media = document.getElementById('media')
+      const mediaDlg = document.getElementById('mediaDlg')
+      const singleInp = document.getElementById('urlInp')
+      const folderInp = document.getElementById('folderInp')
+      const listInp = document.getElementById('listInp')
+      let imgTimer
+
+      mediaDlg.addEventListener('beforetoggle', (ev) => {
+        if(ev.newState == 'open'){
+          document.getElementById('fitSel').value = getComputedStyle(media).objectFit
+        }
+      })
+
+    function setSingle(path){
+      if(imgTimer)
+        clearInterval(imgTimer)
+      singleInp.value = path
+      media.src = URL.canParse(path)? path: url.pathToFileURL(path)
+    }
+    function setFolder(path){
+      folderInp.value = path
+      const files = fs.readdirSync(path)
+      let imgFiles = files.filter(file => {
+        const ext = fpath.extname(file).toLowerCase()
+        return imageExtensions.includes(ext)
+      })
+      imgFiles = imgFiles.map(el => {return fpath.join(path, el)})
+      playArr(imgFiles)
+    }
+    function setList(addr){
+      listInp.value = addr
+      if(URL.canParse(addr))//! lokalne pliki też parsuje! i potem fetch działa też na lokalnych, przynajmniej w Windows
+        setRemoteList(addr)
+      else 
+        setLocalList(addr)
+    }
+    function setLocalList(path){
+      const data = fs.readFileSync(path, 'utf8') 
+      let imgFiles = data.split(/\r?\n/)
+      playArr(imgFiles)
+    }
+    async function setRemoteList(url){
+      const response = await fetch(url)
+      if(response.statusText == 'OK'){
+        const data = await response.text()
+        const arr = data.split(/\r?\n/)
+        playArr(arr)
+      }
+    }
+    function playArr(arr){
+      if(!arr.length)
+        return
+      if(imgTimer)
+        clearInterval(imgTimer)
+      media.src = URL.canParse(arr[0])? arr[0]: url.pathToFileURL(arr[0])
+      let i = 1
+      imgTimer = setInterval(() => {
+        let img = arr[i % arr.length]
+        img = URL.canParse(img)? img: url.pathToFileURL(img)
+        media.src = img
+        i++
+      }, 3000)
+    }
+
+    function setSettings(obj){
+      media.style.objectFit = obj.fit
+      if(obj.src){
+        singleInp.value = obj.src
+        setSingle(obj.src)
+      }
+      if(obj.srcFolder){
+        folderInp.value = obj.srcFolder
+        setFolder(obj.srcFolder)
+      }
+      if(obj.srcList){
+        listInp.value = obj.srcList
+        setList(obj.srcList)
+      }
+    }
+		function getSettings(){
+			let obj = {}
+      obj['fit'] = getComputedStyle(media).objectFit
+      if(singleInp.value)
+        obj['src'] = singleInp.value
+      if(folderInp.value)
+        obj['srcFolder'] = folderInp.value
+      if(listInp.value)
+        obj['srcList'] = listInp.value
+			return obj
+		}
+		</script>
+	</body>
+</html>				

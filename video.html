@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+	<head>
+	<title>Video</title>
+		<style>
+			dialog{
+				border: none;
+				min-width: 60%;
+			}
+      video{
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: fill;
+        position: fixed
+      }
+		</style>
+	</head>
+	<body style="margin: 0">
+			<video controls autoplay muted></video>
+      <input type="file" id="sOpenInp" accept="video/*" onchange="setSingle(this.files[0].path)" style="display:none"/>
+      <input type="file" id="fOpenInp" nwdirectory onchange="setFolder(this.files[0].path)" style="display:none" />
+      <dialog id="mediaDlg">
+        Video<hr/>
+        Single: <input type="url" id="singleInp" onchange="setSingle(this.value)" style="width: 75%" placeholder="Video local path or http address"/> <button onclick="document.getElementById('sOpenInp').click()">&#127916;</button><br/>
+        Folder: <input type="url" id="folderInp" nwdirectory onchange="setFolder(this.value)" style="width: 75%" placeholder="Local folder containing videos"/> <button onclick="document.getElementById('fOpenInp').click()">&#128194;</button><br/> 
+        Fit mode: <select id="fitSel" onchange="media.style.objectFit = this.value">
+          <option>fill</option>
+          <option>contain</option>
+          <option>cover</option>
+          <option>none</option>
+          <option>scale-down</option>
+      </select><hr/>
+      <button commandfor="mediaDlg" command="close">Close</button>
+    </dialog>
+		<script>
+      const url = require('node:url')
+      const fs = require('node:fs')
+      const fpath = require('node:path')
+      const vExts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+      const media = document.querySelector('video')
+      const mediaDlg = document.getElementById('mediaDlg')
+      const singleInp = document.getElementById('singleInp')
+      const folderInp = document.getElementById('folderInp')
+      let vArr = []; let vInd=0
+
+      mediaDlg.addEventListener('beforetoggle', (ev) => {
+        if(ev.newState == 'open'){
+          document.getElementById('fitSel').value = getComputedStyle(media).objectFit
+        }
+      })
+      media.addEventListener('ended', () =>{
+        console.log(vArr[vInd] ,'ended')
+        vInd++
+        if(vInd >= vArr.length)
+          vInd = 0
+        media.src = URL.canParse(vArr[vInd])? vArr[vInd]: url.pathToFileURL(vArr[vInd])
+      })
+
+      function setSingle(addr){
+        singleInp.value = addr
+        vArr = []
+        vArr.push(addr)
+        vInd = 0
+        media.src = URL.canParse(vArr[0])? vArr[0]: url.pathToFileURL(vArr[0])
+      }
+
+      function setFolder(path){
+      folderInp.value = path
+      const files = fs.readdirSync(path)
+      let vFiles = files.filter(file => {
+        const ext = fpath.extname(file).toLowerCase()
+        return vExts.includes(ext)
+      })
+      vFiles = vFiles.map(el => {return fpath.join(path, el)})
+      if(!vFiles.length)
+        return
+      vArr = vFiles
+      vInd = 0
+      media.src = URL.canParse(vArr[0])? vArr[0]: url.pathToFileURL[vArr[0]]
+    }
+
+      function setSettings(obj){
+        media.style.objectFit = obj.fit;
+        if(obj.src){
+          singleInp.value = obj.src
+          setSingle(obj.src)
+        }
+        if(obj.srcFolder){
+          folderInp.value = obj.srcFolder
+          setFolder(obj.srcFolder)
+        }
+      }
+      function getSettings(){
+        let obj = {}
+        if(singleInp.value)
+          obj['src'] = singleInp.value
+        if(folderInp.value)
+          obj['srcFolder'] = folderInp.value
+				obj['fit'] = getComputedStyle(media).objectFit
+        return obj
+      }
+		</script>
+	</body>
+</html>				

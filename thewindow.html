@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>template</title>
+    <style>
+        body {
+            background-color:rgba(0,0,0,0);
+            margin: 0;
+            overflow: hidden;
+        }
+        .viewport {
+          width: 100vw;
+          height: 100vh
+        }
+        .dragbar{
+          top: 0;
+          width: 100%;
+          height: 25px;
+          position: absolute;
+          -webkit-app-region: drag;
+        }
+        iframe{
+          width: 100%;
+          height: 100%;
+          border: none;
+        }
+        dialog{
+          border: none;
+          min-width: 60%;
+        }
+    </style>
+  </head>
+  <body>
+    <div class="viewport">
+      <iframe id="media" title="media frame" src="emptyHTML.html" nwfaketop></iframe>
+      <div class="dragbar"></div>
+    </div>
+    
+    <dialog id="windowDlg"><!-- dialog for window settings -->
+      Window<hr/>
+      position & size:<br/>
+      x <input type="number" id="xInp" style="width: 4em" onchange="cwin.x = parseInt(this.value)"/> y <input type="number" id="yInp" style="width: 4em" onchange="cwin.y = parseInt(this.value)"/>
+      width <input type="number" id="widthInp" style="width: 4em" onchange="cwin.resizeTo(parseInt(this.value), parseInt(heightInp.value))"/>
+      height <input type="number" id="heightInp" style="width: 4em" onchange="cwin.resizeTo(parseInt(widthInp.value), parseInt(this.value))"/><br/>
+      Background: <input id="bcolorInp" type="color" onchange="document.body.style.backgroundColor = this.value"/> 
+      <input type="checkbox" id="transparentInp" onchange="this.checked ? document.body.style.backgroundColor = 'transparent' : document.body.style.backgroundColor = document.getElementById('bcolorInp').value"/> Transparent<br/>
+      <input type="checkbox" id="frameInp"/> System frame<br/>
+      <input type="checkbox" id="ztopInp" onchange="cwin.setAlwaysOnTop(this.checked)"/> Always on top<br/>
+      Zoom: <input type="number" id="zoomInp" value="0" style="width: 3em" onchange="cwin.zoomLevel=Number(this.value)"/><br/>
+      <hr/>
+      <button commandfor="windowDlg" command="close">Close</button>
+    </dialog>
+    <dialog id="documentDlg"><!-- dialog for HTML documents -->
+      HTML<hr/>
+      <input type="file" id="fopenInp" accept="text/html, .html" onchange="setFileSrc(this.files[0].path)" style="display:none"/> <!-- , application/pdf, .pdf -->
+      URL: <input type="url" id="frameURLInp" style="width: 75%" onchange="iframe.src = this.value"/> <button onclick="document.getElementById('fopenInp').click()">&#128194</button><br/>
+      <!--
+      <hr/>
+      Settings for PDF document:<br/>
+      Page to display<input type="number" id="pdfPageInp" style="width: 4em" onchange="" value="1"/>
+    -->
+      Scroll left: <input type="number" id="scrollLInp" style="width: 4em" onchange="iframe.contentWindow.scrollTo({left: this.value})"/>
+      top: <input type="number" id="scrollTInp" style="width: 5em" onchange="iframe.contentWindow.scrollTo({top: this.value})"/><br/>
+      <hr/>
+      <button commandfor="documentDlg" command="close">Close</button>
+    </dialog>
+    <input type='file' id="fsaveInp" nwsaveas="mediatype.json" style="display:none;" />
+
+    <script>
+      const cwin =  nw.Window.get()
+      const fs = require('fs')
+      let iframe = document.getElementById('media')
+      //const pdfDefaultParams = '#toolbar=0&view=FitH&page=2'
+      const windowDlg = document.getElementById('windowDlg')
+      const documentDlg = document.getElementById('documentDlg')
+      const xInp = document.getElementById('xInp')
+      const yInp = document.getElementById('yInp')
+      const widthInp = document.getElementById('widthInp')
+      const heightInp = document.getElementById('heightInp')
+      let mediaDlg
+
+      let menu = new nw.Menu();
+      menu.append(new nw.MenuItem({label: 'Window settings', click: () => windowDlg.showModal()}))
+      menu.append(new nw.MenuItem({label: 'Media settings', click: () => mediaDlg.showModal()}))
+      menu.append(new nw.MenuItem({label: 'Save as', click: () => saveMediaObj(getMediaObj())}))
+      menu.append(new nw.MenuItem({label: 'Close', click: () => cwin.close()}))
+
+      cwin.on('move', (x,y) => {
+        if(windowDlg.open){
+          xInp.value = x
+          yInp.value = y
+        }
+      })
+      cwin.on('resize', (w,h) => {
+        if(windowDlg.open){
+          widthInp.value = w
+          heightInp.value = h
+        }
+      })
+      cwin.on('enter-fullscreen', function() {
+        //does not work
+        console.log('enter-fullscreen event', this.width)
+      })
+      windowDlg.addEventListener('beforetoggle', (ev) => {
+        if(ev.newState == 'open'){
+          document.getElementById('bcolorInp').value = getComputedStyle(document.body).backgroundColor
+          xInp.value = cwin.x
+          yInp.value = cwin.y
+          widthInp.value = cwin.width
+          heightInp.value = cwin.height
+          document.getElementById('ztopInp').checked = cwin.isAlwaysOnTop
+          document.getElementById('zoomInp').value = cwin.zoomLevel
+        }
+      }) 
+      documentDlg.addEventListener('beforetoggle', ev => {
+        document.getElementById('frameURLInp').value = iframe.contentDocument.location.href
+        document.getElementById('scrollLInp').value = Math.round(iframe.contentWindow.scrollX)
+        document.getElementById('scrollTInp').value = Math.round(iframe.contentWindow.scrollY)
+      })
+      iframe.addEventListener('load', () => {
+        mediaDlg = iframe.contentDocument.getElementById('mediaDlg')
+        if(!mediaDlg)
+          mediaDlg = documentDlg
+        console.log('iframe.load', mediaDlg)
+        iframe.contentWindow.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault()
+          menu.popup(ev.x, ev.y);
+          return false
+        });
+      })
+
+      function setFileSrc(path){
+        let urlpath = 'file://' + path
+        /*
+        if(path.split('.').pop().toLowerCase() == 'pdf'){
+          urlpath += pdfDefaultParams
+          //iframe.style.pointerEvents = 'none'
+        }
+          */
+        iframe.src = urlpath
+        document.getElementById('frameURLInp').value = iframe.src
+      }
+      function getSettings(){
+        let obj = {}
+        obj['media'] = 'thewindow.html'
+        obj['mediaURL'] = iframe.src
+        obj['winBgColor'] = getComputedStyle(document.body).backgroundColor
+        obj['winTransparent'] = document.getElementById('transparentInp').checked
+        obj['winFrame'] = document.getElementById('frameInp').checked
+        obj['winTop'] = cwin.isAlwaysOnTop
+        obj['winX'] = cwin.x
+        obj['winY'] = cwin.y
+        obj['winWidth'] = cwin.width
+        obj['winHeight'] = cwin.height
+        obj['HTMLscrollX'] = Math.round(iframe.contentWindow.scrollX)
+        obj['HTMLscrollY'] = Math.round(iframe.contentWindow.scrollY)
+        return obj
+      }
+
+      function setSettings(obj){
+        document.body.style.backgroundColor = obj.winBgColor
+        iframe.src = obj.mediaURL
+        iframe.addEventListener('load', () => {
+          iframe.contentWindow.setSettings?.(obj)
+          iframe.contentWindow.scrollTo(obj.HTMLscrollX, obj.HTMLscrollY)
+        })
+      }
+
+      function getMediaObj(){
+        let obj = getSettings()
+        if(typeof iframe.contentWindow.getSettings === 'function')
+            Object.assign(obj, iframe.contentWindow.getSettings())
+        return obj  
+      }
+
+      function saveMediaObj(obj){ //new json format (array)
+        const objarr =[];
+        objarr.push(obj)
+        let chooser = document.querySelector('#fsaveInp')
+        chooser.value = '';
+        chooser.onchange = function(ev) {
+          const filePath = this.value
+          if(!filePath)
+            return
+          const data = JSON.stringify(objarr, null, 3)
+          console.log(data)
+          fs.writeFile(filePath, data, (err) => {
+            if(err) alert("Error saving file: " + err.message)
+          })
+        }
+        chooser.click()
+      }
+    </script>
+  </body>
